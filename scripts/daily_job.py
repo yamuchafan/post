@@ -147,7 +147,7 @@ def build_intro(c):
 
     g1 = gnames[0] if len(gnames) > 0 else "主要ジャンル"
     g2 = gnames[1] if len(gnames) > 1 else ""
-    maker_text = f"、メーカーでは{maker}系の出演が多いです。" if maker else ""
+    maker_text = f"、メーカーでは{maker}系の出演が多いです" if maker else ""
 
     ratio_text = ""
     if gstats:
