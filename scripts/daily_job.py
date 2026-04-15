@@ -107,62 +107,162 @@ def h(text):
 
 
 def genre_names(c):
-    return [g["name"] for g in c.get("top_genres", []) if g.get("name")][:3]
+    names = []
+    for g in c.get("top_genres", []):
+        name = (g.get("name") or "").strip()
+        if not name:
+            continue
+
+        # 文章で使いにくいものを除外
+        ng_words = [
+            "ベスト", "総集編", "単体作品", "独占配信", "配信専用",
+            "4時間", "8時間", "16時間", "Blu-ray", "VR", "ハイビジョン"
+        ]
+        if any(w in name for w in ng_words):
+            continue
+
+        # 複合タグを優先しすぎない
+        if " " in name:
+            continue
+
+        names.append(name)
+
+    return names[:3]
+
+
+def top_counts(c):
+    genres = c.get("top_genres", [])
+    total = int(c.get("count", 0))
+
+    out = []
+    for g in genres[:3]:
+        name = g.get("name", "")
+        cnt = int(g.get("count", 0))
+        ratio = round((cnt / total) * 100) if total > 0 else 0
+        out.append((name, cnt, ratio))
+    return out
+
+
+def detect_article_axis(c):
+    genres = c.get("top_genres", [])
+    joined = " / ".join([g.get("name", "") for g in genres[:5]])
+
+    # 強めを先に判定
+    if any(k in joined for k in ["中出し", "顔射", "ぶっかけ", "アナル"]):
+        return "hard"
+    if any(k in joined for k in ["熟女", "人妻", "母", "叔母"]):
+        return "jyukujo"
+    if any(k in joined for k in ["痴女", "主観", "逆ナン", "レズ"]):
+        return "character"
+    if any(k in joined for k in ["フェラ", "手コキ"]):
+        return "oral"
+    if any(k in joined for k in ["美少女", "清楚", "スレンダー", "アイドル"]):
+        return "bishoujo"
+    return "mixed"
 
 
 def build_intro(c):
-    genres = genre_names(c)
-    g1 = genres[0] if len(genres) > 0 else "主要ジャンル"
-    g2 = genres[1] if len(genres) > 1 else ""
+    name = c["name"]
+    count = int(c.get("count", 0))
     maker = (c.get("top_maker") or {}).get("name", "")
+    gstats = top_counts(c)
+    gnames = genre_names(c)
 
-    genre_text = f"{g1}や{g2}" if g2 else g1
-    maker_text = f"、メーカーでは{maker}系の出演が多いです。" if maker else ""
+    g1 = gnames[0] if len(gnames) > 0 else "主要ジャンル"
+    g2 = gnames[1] if len(gnames) > 1 else ""
+    maker_text = f"、メーカーでは{maker}系の比重も見えます" if maker else ""
+
+    ratio_text = ""
+    if gstats:
+        n1, c1, r1 = gstats[0]
+        ratio_text = f"特に「{n1}」は{count}件中{c1}件と比率が高く、"
+
+    if g2:
+        return (
+            f"{name}の作品を選ぶなら、雰囲気だけで探すよりも出演本数やジャンル傾向から入った方が失敗しにくくなります。"
+            f"出演作は全{count}件あり、上位では「{g1}」「{g2}」が目立ち{maker_text}。"
+            f"{ratio_text}どこから見始めるべきかを決めやすいタイプです。"
+            f"この記事では、最初に押さえたいおすすめ3本と、向いている人・向いていない人、失敗しにくい選び方を絞って整理します。"
+        )
 
     return (
-        f"{c['name']}の作品を選ぶときは、雰囲気で探すより、出演本数やジャンル傾向を見た方が失敗しにくいです。"
-        f"出演作は全{c['count']}件あり、全体では{genre_text}の傾向が強く{maker_text}。"
-        f"この記事では、初見からでも入りやすいおすすめ3本と、向いている人・向いていない人、失敗しにくい選び方を整理しています。"
+        f"{name}の作品は、出演数が{count}件と多く、最初の入口を決めずに一覧から入ると迷いやすいタイプです。"
+        f"そのため、まずは代表作と上位傾向を確認してから絞り込む方が失敗しにくくなります。"
+        f"この記事では、最初に見ておきたいおすすめ3本と、相性を判断しやすい見方をまとめます。"
     )
 
 
 def build_for(c):
-    cluster = c.get("cluster", "mixed")
     name = c["name"]
+    axis = detect_article_axis(c)
+    gnames = genre_names(c)
+    g1 = gnames[0] if len(gnames) > 0 else ""
+    g2 = gnames[1] if len(gnames) > 1 else ""
 
-    if cluster == "bishoujo":
-        return f"{name}は、雰囲気や作品の完成度を重視して選びたい人に向いています。"
-    if cluster == "oral":
-        return f"{name}は、プレイ傾向を先に決めてから選びたい人に向いています。"
-    if cluster == "jyukujo":
-        return f"{name}は、落ち着いた空気感や年上系の雰囲気を重視したい人に向いています。"
-    if cluster == "character":
-        return f"{name}は、役柄やキャラクター性を重視して選びたい人に向いています。"
-    if cluster == "hard":
-        return f"{name}は、分かりやすい強めの方向性から入りたい人に向いています。"
+    if axis == "hard":
+        return f"{name}は、やや強めの方向性を含めて選びたい人に向いています。特に「{g1}」や「{g2}」のように、分かりやすい条件から入ると相性を判断しやすいです。"
+    if axis == "bishoujo":
+        return f"{name}は、見た目や雰囲気のまとまりを重視して選びたい人に向いています。まずは王道寄りの作品から確認したい人には入りやすいタイプです。"
+    if axis == "oral":
+        return f"{name}は、プレイ傾向を先に決めてから選びたい人に向いています。条件を先に固めたい人ほど迷いを減らしやすいです。"
+    if axis == "jyukujo":
+        return f"{name}は、落ち着いた空気感や年上系の雰囲気を重視したい人に向いています。派手さより相性で選びたい人に合います。"
+    if axis == "character":
+        return f"{name}は、役柄やキャラクター性の立ち方を重視して選びたい人に向いています。雰囲気より設定から入りたい人に使いやすいタイプです。"
 
-    return f"{name}は、代表作を見てから条件で絞り込みたい人に向いています。"
+    return f"{name}は、代表作で全体の傾向を確認してから条件で絞り込みたい人に向いています。"
 
 
 def build_not(c):
     name = c["name"]
-    return f"反対に、条件を決めずに広く眺めたい人は、最初に作品一覧へ行くより、先におすすめ3本から作品を確認した方が良作に出会えます。"
+    axis = detect_article_axis(c)
+
+    if axis == "hard":
+        return f"反対に、まずは軽めの作品や雰囲気重視の作品から入りたい人には、{name}は最初の1本選びで好みが分かれる可能性があります。"
+    if axis == "bishoujo":
+        return f"一方で、強い条件や刺激を最優先で絞り込みたい人には、{name}は少し方向性が違って見える場合があります。"
+    if axis == "oral":
+        return f"逆に、作品全体の雰囲気や見た目のまとまりを最優先で選びたい人には、{name}は入り口としてやや条件寄りに感じることがあります。"
+    if axis == "jyukujo":
+        return f"若めの見た目や王道寄りの作品から入りたい人には、{name}は最初の入口として好みが分かれる可能性があります。"
+    if axis == "character":
+        return f"まずは万人向けの作品から広く触れたい人には、{name}は少し方向性が立って見えることがあります。"
+
+    return f"条件を決めずに一覧を流し見したい人は、最初から作品一覧へ行くより、先におすすめ3本から相性を確認した方が判断しやすくなります。"
 
 
 def build_how(c):
     name = c["name"]
-    count = c["count"]
+    count = int(c.get("count", 0))
     maker_bias = c.get("maker_bias", False)
     maker = (c.get("top_maker") or {}).get("name", "")
-    genres = genre_names(c)
-    g1 = genres[0] if len(genres) > 0 else ""
-    g2 = genres[1] if len(genres) > 1 else ""
+    gnames = genre_names(c)
+    g1 = gnames[0] if len(gnames) > 0 else ""
+    g2 = gnames[1] if len(gnames) > 1 else ""
 
     if maker_bias and maker:
-        return f"{name}はメーカー傾向が比較的はっきりしているので、まず代表作を見たあと、{maker}系の作品へ広げる見方が失敗しにくいです。"
-    if count > 40:
-        return f"{name}は作品数が多いため、最初から一覧で迷うより、{g1}や{g2}など上位ジャンルから入る方がいいです。"
-    return f"{name}は、まず代表作を見て女優の雰囲気を掴み、その後に作品一覧へ進む流れが合っています。"
+        return f"{name}はメーカー傾向が比較的はっきりしているため、まず代表作を確認したあと、{maker}系の作品へ広げる見方が失敗しにくいです。"
+
+    if count >= 200:
+        return f"{name}は作品数がかなり多いため、最初から一覧で探すよりも、まず「{g1}」や「{g2}」のような上位傾向を確認し、そのうえで代表作3本から入る方が効率的です。"
+
+    if count >= 50:
+        return f"{name}は代表作で全体の雰囲気を確認したあと、上位ジャンルを軸に絞り込む見方が合っています。"
+
+    return f"{name}は作品数が極端に多いタイプではないので、まずおすすめ3本を順に見てから一覧ページへ進む流れで十分です。"
+
+
+def build_pick_reason(c, index):
+    axis = detect_article_axis(c)
+    gnames = genre_names(c)
+    g1 = gnames[0] if len(gnames) > 0 else "上位傾向"
+    g2 = gnames[1] if len(gnames) > 1 else "別方向"
+
+    if index == 1:
+        return f"最初の1本として全体の雰囲気を掴みやすい作品です。まず相性判断をしたい人はここから入ると流れが分かりやすくなります。"
+    if index == 2:
+        return f"1本目で合いそうだと感じた人が、次に傾向を確かめるのに向いている作品です。特に「{g1}」寄りの見方をしたい人には比較材料になります。"
+    return f"3本目は比較用です。1本目・2本目と見比べることで、{g1}だけで入るべきか、少し違う方向まで含めて追うべきかを判断しやすくなります。"
 
 
 def build_picks_html(c):
@@ -174,9 +274,10 @@ def build_picks_html(c):
     for i, p in enumerate(items, start=1):
         title = h(p.get("title", f"おすすめ作品{i}"))
         url = h(p.get("url", "#"))
+        reason = h(build_pick_reason(c, i))
         parts.append(
             f"<h3>{i}. <a href=\"{url}\">{title}</a></h3>"
-            f"<p>入口として確認しやすい1本です。</p>"
+            f"<p>{reason}</p>"
         )
     return "\n".join(parts)
 
@@ -186,12 +287,11 @@ def build_related_html(c):
     if not items:
         return "<p>比較候補は今後追加予定です。</p>"
 
+    intro = "<p>近い方向性で比較するなら、次の女優も候補に入ります。違いまで含めて見たいときの比較先として使えます。</p>"
     lis = []
     for r in items:
-        lis.append(
-            f"<li><a href=\"{h(r['url'])}\">{h(r['name'])}</a></li>"
-        )
-    return "<ul>\n" + "\n".join(lis) + "\n</ul>"
+        lis.append(f"<li><a href=\"{h(r['url'])}\">{h(r['name'])}</a></li>")
+    return intro + "<ul>\n" + "\n".join(lis) + "\n</ul>"
 
 
 def build_article_html(c):
@@ -199,8 +299,6 @@ def build_article_html(c):
     actress_url = h(c["actress_url"])
 
     return f"""
-<h1>{name}のおすすめ作品3選｜初めて見る人向けに選び方も解説</h1>
-
 <h2>導入</h2>
 <p>{h(build_intro(c))}</p>
 <p>出演作品を一覧で確認したい方は、<a href="{actress_url}">{name}の出演作品一覧ページ</a>もあわせて確認してください。</p>
@@ -221,10 +319,10 @@ def build_article_html(c):
 {build_related_html(c)}
 
 <h2>総評</h2>
-<p>{name}は、まず代表作で全体の傾向を確認し、その後に一覧ページへ進む流れが王道です。</p>
+<p>{name}は、最初に代表作で全体の傾向を確認し、その後に出演作品一覧ページで絞り込む見方がもっとも失敗しにくいタイプです。まず1本を決めたい人向けの入口記事として使うのが適しています。</p>
 
 <h2>出演作品一覧はこちら</h2>
-<p>作品一覧・ジャンル傾向・メーカー傾向までまとめて見たい方は、<a href="{actress_url}">{name}の出演作品一覧ページ</a>を確認してください。</p>
+<p>作品一覧、上位ジャンル、メーカー傾向までまとめて見たい方は、<a href="{actress_url}">{name}の出演作品一覧ページ</a>を確認してください。</p>
 """.strip()
 
 
