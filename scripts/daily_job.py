@@ -77,7 +77,21 @@ def get_candidates():
         print("body:", r.text[:1000])
         r.raise_for_status()
 
-    return r.json()
+    data = r.json()
+
+    if isinstance(data, list):
+        return data
+
+    if isinstance(data, dict):
+        if "term_id" in data:
+            return [data]
+
+        if "data" in data and isinstance(data["data"], list):
+            return data["data"]
+
+    print("Unexpected candidates response type:", type(data).__name__)
+    print("Response JSON:", json.dumps(data, ensure_ascii=False)[:2000])
+    raise ValueError("actress-candidates response is not a list")
 
 
 def wp_post_exists(post_slug):
@@ -236,9 +250,9 @@ def build_summary_box(c):
     g2 = gnames[1] if len(gnames) > 1 else "次点ジャンル"
 
     return f"""
-<div style="border:1px solid #e5e7eb;background:#f8fafc;padding:16px 18px;border-radius:12px;margin:0 0 24px;">
-  <p style="margin:0 0 10px;font-weight:700;">この記事で分かること</p>
-  <ul style="margin:0;padding-left:20px;line-height:1.9;">
+<div class="ypn-summary-box">
+  <p class="ypn-summary-title">この記事で分かること</p>
+  <ul class="ypn-summary-list">
     <li>{h(name)}を最初に見るなら、どの作品から入るべきか</li>
     <li>出演上位ジャンルである「{h(g1)}」「{h(g2)}」をどう見分けるか</li>
     <li>一通り見終わったあとに出演作品一覧ページでどう選ぶのか</li>
@@ -283,7 +297,7 @@ def build_pick_label(index):
 def build_picks_html(c):
     items = c.get("picks", [])[:3]
     if not items:
-        return "<p>おすすめ候補は準備中です。</p>"
+        return '<p class="ypn-empty">おすすめ候補は準備中です。</p>'
 
     parts = []
     for i, p in enumerate(items, start=1):
@@ -297,27 +311,27 @@ def build_picks_html(c):
         image_html = ""
         if thumb_url:
             image_html = f"""
-<div style="flex:0 0 160px;">
+<div class="ypn-pick-thumb">
   <a href="{url}">
-    <img src="{thumb_url}" alt="{title}" style="width:160px;height:auto;border-radius:10px;display:block;">
+    <img src="{thumb_url}" alt="{title}">
   </a>
 </div>
 """.strip()
 
         meta_html = ""
         if date:
-            meta_html += f'<div style="font-size:13px;color:#6b7280;margin:6px 0 10px;">配信日: {date}</div>'
+            meta_html = f'<div class="ypn-pick-date">配信日: {date}</div>'
 
         parts.append(f"""
-<div style="display:flex;gap:16px;align-items:flex-start;margin:22px 0;padding:16px;border:1px solid #e5e7eb;border-radius:14px;background:#fff;">
+<div class="ypn-pick-card">
   {image_html}
-  <div style="flex:1 1 auto;min-width:0;">
-    <div style="display:inline-block;font-size:12px;font-weight:700;color:#374151;background:#f3f4f6;padding:4px 8px;border-radius:999px;margin-bottom:10px;">{label}</div>
-    <h3 style="margin:0 0 6px;line-height:1.6;font-size:22px;">
+  <div class="ypn-pick-body">
+    <div class="ypn-pick-label">{label}</div>
+    <h3 class="ypn-pick-title">
       {i}. <a href="{url}">{title}</a>
     </h3>
     {meta_html}
-    <p style="margin:0;line-height:1.95;">{reason}</p>
+    <p class="ypn-pick-reason">{reason}</p>
   </div>
 </div>
 """.strip())
@@ -354,17 +368,17 @@ def build_related_line(c, name, index):
 def build_related_html(c):
     items = c.get("related", [])[:3]
     if not items:
-        return "<p>比較候補は今後追加予定です。</p>"
+        return '<p class="ypn-empty">比較候補は今後追加予定です。</p>'
 
-    parts = ['<p>近い方向性で比較するなら、次の女優も候補に入ります。違いまで含めて見たいときの作品の比較先として使えます。</p>']
+    parts = ['<p class="ypn-related-intro">近い方向性で比較するなら、次の女優も候補に入ります。違いまで含めて見たいときの作品の比較先として使えます。</p>']
     for idx, r in enumerate(items):
         name = h(r["name"])
         url = h(r["url"])
         line = h(build_related_line(c, r["name"], idx))
         parts.append(f"""
-<div style="margin:14px 0;padding:14px 16px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;">
-  <p style="margin:0 0 6px;font-weight:700;"><a href="{url}">{name}</a></p>
-  <p style="margin:0;line-height:1.9;">{line}</p>
+<div class="ypn-related-card">
+  <p class="ypn-related-name"><a href="{url}">{name}</a></p>
+  <p class="ypn-related-text">{line}</p>
 </div>
 """.strip())
     return "\n".join(parts)
@@ -375,33 +389,38 @@ def build_article_html(c):
     actress_url = h(c["actress_url"])
 
     return f"""
-{build_summary_box(c)}
+<div class="ypn-seo-article">
+  {build_summary_box(c)}
 
-<h2>まずはじめに</h2>
-<p>{h(build_intro(c))}</p>
-<p>出演作品を一覧で確認したい方は、<a href="{actress_url}">{name}の出演作品一覧ページ</a>もあわせて確認してください。</p>
+  <div class="article-entry">
 
-<h2>{name}の作品が向いている人</h2>
-<p>{h(build_for(c))}</p>
+  <h2>{name}を初めて見る人が最初に押さえたいポイント</h2>
+  <p>{h(build_intro(c))}</p>
+  <p>{name}の作品を一覧で確認したい方は、<a href="{actress_url}">{name}の出演作品一覧ページ</a>もあわせて確認してください。</p>
 
-<h2>{name}の作品が向いていない人</h2>
-<p>{h(build_not(c))}</p>
+  <h2>{name}の作品が向いている人・向いていない人</h2>
+  <h3>{name}の作品が向いている人</h3>
+  <p>{h(build_for(c))}</p>
 
-<h2>まず見て欲しいおすすめ3本</h2>
-{build_picks_html(c)}
+  <h3>{name}の作品が向いていない人</h3>
+  <p>{h(build_not(c))}</p>
 
-<h2>買って後悔？失敗しにくい選び方</h2>
-<p>{h(build_how(c))}</p>
+  <h2>{name}を最初に見るならおすすめしたい3本</h2>
+  {build_picks_html(c)}
 
-<h2>同系統で比較したい女優</h2>
-{build_related_html(c)}
+  <h2>{name}の作品選びで失敗しにくい見方</h2>
+  <p>{h(build_how(c))}</p>
 
-<h2>まとめ</h2>
-<p>{name}は、最初に代表作で全体の傾向を確認し、その後に出演作品一覧ページで絞り込む見方がもっとも外しにくいです。まず好みの1本を決めたい人向けの入口用の記事として使うのがいいです。</p>
+  <h2>同系統で比較したい女優</h2>
+  {build_related_html(c)}
 
-<h2>出演作品一覧はこちら</h2>
-<p>作品一覧、上位ジャンル、メーカー傾向までまとめて見たい方は、<a href="{actress_url}">{name}の出演作品一覧ページ</a>を確認してください。</p>
-""".strip()
+  <h2>{name}を選ぶときの結論</h2>
+  <p>{name}は、最初に代表作で全体の傾向を確認し、その後に出演作品一覧ページで絞り込む見方がもっとも外しにくいです。まず好みの1本を決めたい人向けの入口記事として使いやすいタイプです。</p>
+
+  <h2>{name}の出演作品一覧から探したい方へ</h2>
+  <p>作品一覧、上位ジャンル、メーカー傾向までまとめて見たい方は、<a href="{actress_url}">{name}の出演作品一覧ページ</a>を確認してください。</p>
+
+</div>
 
 
 def build_excerpt(c):
@@ -471,8 +490,20 @@ def main():
 
     candidates = get_candidates()
 
+    if not isinstance(candidates, list):
+        print("Candidates is not a list:", type(candidates).__name__)
+        raise ValueError("candidates must be a list")
+
     chosen = None
     for c in candidates:
+        if not isinstance(c, dict):
+            print("Invalid candidate item:", c)
+            continue
+
+        if "term_id" not in c:
+            print("Candidate missing term_id:", c)
+            continue
+
         term_id = str(c["term_id"])
         post_slug = f"seo-actress-{c['term_id']}"
 
