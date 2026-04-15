@@ -77,7 +77,21 @@ def get_candidates():
         print("body:", r.text[:1000])
         r.raise_for_status()
 
-    return r.json()
+    data = r.json()
+
+    if isinstance(data, list):
+        return data
+
+    if isinstance(data, dict):
+        if "term_id" in data:
+            return [data]
+
+        if "data" in data and isinstance(data["data"], list):
+            return data["data"]
+
+    print("Unexpected candidates response type:", type(data).__name__)
+    print("Response JSON:", json.dumps(data, ensure_ascii=False)[:2000])
+    raise ValueError("actress-candidates response is not a list")
 
 
 def wp_post_exists(post_slug):
@@ -469,7 +483,7 @@ def main():
     state = load_state()
     done_term_ids = set(str(x) for x in state.get("done_term_ids", []))
 
-    candidates = get_candidates()
+        candidates = get_candidates()
 
     chosen = None
     for c in candidates:
