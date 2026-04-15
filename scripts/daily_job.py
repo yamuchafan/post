@@ -392,13 +392,12 @@ def build_article_html(c):
 <div class="ypn-seo-article">
   {build_summary_box(c)}
 
-  <div class="article-entry">
-
   <h2>{name}を初めて見る人が最初に押さえたいポイント</h2>
   <p>{h(build_intro(c))}</p>
-  <p>{name}の作品を一覧で確認したい方は、<a href="{actress_url}">{name}の出演作品一覧ページ</a>もあわせて確認してください。</p>
+  <p>出演作品を一覧で確認したい方は、<a href="{actress_url}">{name}の出演作品一覧ページ</a>もあわせて確認してください。</p>
 
   <h2>{name}の作品が向いている人・向いていない人</h2>
+
   <h3>{name}の作品が向いている人</h3>
   <p>{h(build_for(c))}</p>
 
@@ -415,12 +414,9 @@ def build_article_html(c):
   {build_related_html(c)}
 
   <h2>{name}を選ぶときの結論</h2>
-  <p>{name}は、最初に代表作で全体の傾向を確認し、その後に出演作品一覧ページで絞り込む見方がもっとも外しにくいです。まず好みの1本を決めたい人向けの入口記事として使いやすいタイプです。</p>
-
-  <h2>{name}の出演作品一覧から探したい方へ</h2>
-  <p>作品一覧、上位ジャンル、メーカー傾向までまとめて見たい方は、<a href="{actress_url}">{name}の出演作品一覧ページ</a>を確認してください。</p>
-
+  <p>{name}は、最初に代表作で全体の傾向を確認し、その後に<a href="{actress_url}">出演作品一覧ページ</a>で絞り込む見方がもっとも外しにくいです。まず好みの1本を決めたい人向けの入口記事として使いやすいタイプです。</p>
 </div>
+""".strip()
 
 
 def build_excerpt(c):
