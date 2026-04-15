@@ -1,9 +1,9 @@
 import base64
+import html
 import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-import html
 
 import requests
 
@@ -50,8 +50,6 @@ def load_state():
         return {"done_term_ids": []}
 
     data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
-
-    # 旧形式にも対応
     if "done_term_ids" not in data:
         data["done_term_ids"] = []
     return data
@@ -107,27 +105,7 @@ def h(text):
 
 
 def genre_names(c):
-    names = []
-    for g in c.get("top_genres", []):
-        name = (g.get("name") or "").strip()
-        if not name:
-            continue
-
-        # 文章で使いにくいものを除外
-        ng_words = [
-            "ベスト", "総集編", "単体作品", "独占配信", "配信専用",
-            "4時間", "8時間", "16時間", "Blu-ray", "VR", "ハイビジョン"
-        ]
-        if any(w in name for w in ng_words):
-            continue
-
-        # 複合タグを優先しすぎない
-        if " " in name:
-            continue
-
-        names.append(name)
-
-    return names[:3]
+    return [g["name"] for g in c.get("top_genres", []) if g.get("name")][:3]
 
 
 def top_counts(c):
@@ -147,7 +125,6 @@ def detect_article_axis(c):
     genres = c.get("top_genres", [])
     joined = " / ".join([g.get("name", "") for g in genres[:5]])
 
-    # 強めを先に判定
     if any(k in joined for k in ["中出し", "顔射", "ぶっかけ", "アナル"]):
         return "hard"
     if any(k in joined for k in ["熟女", "人妻", "母", "叔母"]):
@@ -156,7 +133,7 @@ def detect_article_axis(c):
         return "character"
     if any(k in joined for k in ["フェラ", "手コキ"]):
         return "oral"
-    if any(k in joined for k in ["美少女", "清楚", "スレンダー", "アイドル"]):
+    if any(k in joined for k in ["美少女", "清楚", "スレンダー", "アイドル", "巨乳"]):
         return "bishoujo"
     return "mixed"
 
@@ -179,16 +156,16 @@ def build_intro(c):
 
     if g2:
         return (
-            f"{name}の作品を選ぶなら、雰囲気だけで探すよりも出演本数やジャンル傾向から入った方が失敗しにくくなります。"
-            f"出演作は全{count}件あり、上位では「{g1}」「{g2}」が目立ち{maker_text}。"
+            f"{name}の作品を選ぶなら、雰囲気だけで探すよりも出演本数やジャンル傾向から入った方が失敗が無いです。"
+            f"出演作は全{count}件あり、上位では「{g1}」「{g2}」が多く{maker_text}。"
             f"{ratio_text}どこから見始めるべきかを決めやすいタイプです。"
             f"この記事では、最初に押さえたいおすすめ3本と、向いている人・向いていない人、失敗しにくい選び方を絞って整理します。"
         )
 
     return (
-        f"{name}の作品は、出演数が{count}件と多く、最初の入口を決めずに一覧から入ると迷いやすいタイプです。"
+        f"{name}の作品は、出演数が{count}件と多く、最初の入口を決めずに一覧から探すと迷いやすいタイプです。"
         f"そのため、まずは代表作と上位傾向を確認してから絞り込む方が失敗しにくくなります。"
-        f"この記事では、最初に見ておきたいおすすめ3本と、相性を判断しやすい見方をまとめます。"
+        f"この記事では、最初に見ておきたいおすすめ3本と、作品相性をまとめます。"
     )
 
 
@@ -200,17 +177,17 @@ def build_for(c):
     g2 = gnames[1] if len(gnames) > 1 else ""
 
     if axis == "hard":
-        return f"{name}は、やや強めの方向性を含めて選びたい人に向いています。特に「{g1}」や「{g2}」のように、分かりやすい条件から入ると相性を判断しやすいです。"
+        return f"{name}は、条件がはっきりした作品から入りたい人に向いています。特に「{g1}」や「{g2}」のように、入口となる条件を決めて探すと相性を判断しやすいです。"
     if axis == "bishoujo":
-        return f"{name}は、見た目や雰囲気のまとまりを重視して選びたい人に向いています。まずは王道寄りの作品から確認したい人には入りやすいタイプです。"
+        return f"{name}は、見た目や雰囲気を重視して選びたい人に向いています。まず王道寄りの作品から入りたい人には比較的使いやすいです。"
     if axis == "oral":
-        return f"{name}は、プレイ傾向を先に決めてから選びたい人に向いています。条件を先に固めたい人ほど迷いを減らしやすいです。"
+        return f"{name}は、プレイ傾向を先に決めてから選びたい人に向いています。条件を絞りながら見たい人ほどミスマッチを減らしやすくなります。"
     if axis == "jyukujo":
-        return f"{name}は、落ち着いた空気感や年上系の雰囲気を重視したい人に向いています。派手さより相性で選びたい人に合います。"
+        return f"{name}は、落ち着いた空気感や年上系の雰囲気を重視したい人に向いています。派手さより作品の相性で選びたい人に合います。"
     if axis == "character":
-        return f"{name}は、役柄やキャラクター性の立ち方を重視して選びたい人に向いています。雰囲気より設定から入りたい人に使いやすいタイプです。"
+        return f"{name}は、役柄やキャラクター性の立ち方を重視して選びたい人に向いています。キャラ設定や女優の立ち位置から入りたい人向けです。"
 
-    return f"{name}は、代表作で全体の傾向を確認してから条件で絞り込みたい人に向いています。"
+    return f"{name}は、代表作で全体の作品傾向を確認してから条件で絞り込みたい人に向いています。"
 
 
 def build_not(c):
@@ -218,17 +195,17 @@ def build_not(c):
     axis = detect_article_axis(c)
 
     if axis == "hard":
-        return f"反対に、まずは軽めの作品や雰囲気重視の作品から入りたい人には、{name}は最初の1本選びで好みが分かれる可能性があります。"
+        return f"一方で、まずは軽めの作品や雰囲気重視の作品から入りたい人には、{name}は最初の1本選びで好みが分かれる可能性があります。"
     if axis == "bishoujo":
-        return f"一方で、強い条件や刺激を最優先で絞り込みたい人には、{name}は少し方向性が違って見える場合があります。"
+        return f"反対に、強い条件や刺激を最優先で絞り込みたい人には、{name}は少し方向性が違って見える場合があります。"
     if axis == "oral":
-        return f"逆に、作品全体の雰囲気や見た目のまとまりを最優先で選びたい人には、{name}は入り口としてやや条件寄りに感じることがあります。"
+        return f"逆に、作品全体の雰囲気や見た目を最優先で選びたい人には、{name}はやや条件寄りに感じることがあります。"
     if axis == "jyukujo":
-        return f"若めの見た目や王道寄りの作品から入りたい人には、{name}は最初の入口として好みが分かれる可能性があります。"
+        return f"若めの見た目や王道寄りの雰囲気から入りたい人には、{name}は最初の入口として好みが分かれる可能性があります。"
     if axis == "character":
-        return f"まずは万人向けの作品から広く触れたい人には、{name}は少し方向性が立って見えることがあります。"
+        return f"まずは万人向けの作品から広く触れたい人には、{name}は少しギャップが立って見えることがあります。"
 
-    return f"条件を決めずに一覧を流し見したい人は、最初から作品一覧へ行くより、先におすすめ3本から相性を確認した方が判断しやすくなります。"
+    return f"条件を決めずに一覧を流し見したい人は、最初から作品一覧へ行くより、先におすすめ3本を確認した方が選びやすくなります。"
 
 
 def build_how(c):
@@ -241,28 +218,66 @@ def build_how(c):
     g2 = gnames[1] if len(gnames) > 1 else ""
 
     if maker_bias and maker:
-        return f"{name}はメーカー傾向が比較的はっきりしているため、まず代表作を確認したあと、{maker}系の作品へ広げる見方が失敗しにくいです。"
+        return f"{name}はメーカー傾向が比較的はっきりしているため、まず代表作を確認したあと、{maker}系の作品へ広げる方が後悔しにくいです。"
 
     if count >= 200:
-        return f"{name}は作品数がかなり多いため、最初から一覧で探すよりも、まず「{g1}」や「{g2}」のような上位傾向を確認し、そのうえで代表作3本から入る方が効率的です。"
+        return f"{name}は作品数がかなり多いため、最初から一覧で探すよりも、まず「{g1}」や「{g2}」のような上位傾向を確認し、そのうえで代表作3本から入る方が探しやすいです。"
 
     if count >= 50:
-        return f"{name}は代表作で全体の雰囲気を確認したあと、上位ジャンルを軸に絞り込む見方が合っています。"
+        return f"{name}は代表作で作品全体、女優の雰囲気を確認したあと、上位ジャンルから絞りこみ検索がおすすめです。"
 
-    return f"{name}は作品数が極端に多いタイプではないので、まずおすすめ3本を順に見てから一覧ページへ進む流れで十分です。"
+    return f"{name}は作品数が極端に多いタイプではないので、まずおすすめ3本を順に見てから一覧ページへ進む流れがいいです。"
 
 
-def build_pick_reason(c, index):
-    axis = detect_article_axis(c)
+def build_summary_box(c):
+    name = c["name"]
     gnames = genre_names(c)
-    g1 = gnames[0] if len(gnames) > 0 else "上位傾向"
-    g2 = gnames[1] if len(gnames) > 1 else "別方向"
+    g1 = gnames[0] if len(gnames) > 0 else "主要ジャンル"
+    g2 = gnames[1] if len(gnames) > 1 else "次点ジャンル"
+
+    return f"""
+<div style="border:1px solid #e5e7eb;background:#f8fafc;padding:16px 18px;border-radius:12px;margin:0 0 24px;">
+  <p style="margin:0 0 10px;font-weight:700;">この記事で分かること</p>
+  <ul style="margin:0;padding-left:20px;line-height:1.9;">
+    <li>{h(name)}を最初に見るなら、どの作品から入るべきか</li>
+    <li>上位傾向である「{h(g1)}」「{h(g2)}」をどう見分けるか</li>
+    <li>一通り見終わったあとに出演作品一覧ページへどう進むか</li>
+  </ul>
+</div>
+""".strip()
+
+
+def build_pick_reason(c, pick, index):
+    matched = pick.get("matched_genres", [])
+    maker = pick.get("maker_name", "")
+    g1 = matched[0] if len(matched) > 0 else ""
+    g2 = matched[1] if len(matched) > 1 else ""
 
     if index == 1:
-        return f"最初の1本として全体の雰囲気を掴みやすい作品です。まず相性判断をしたい人はここから入ると流れが分かりやすくなります。"
+        if g1:
+            return f"最初の1本として全体の雰囲気を掴みやすい作品です。特に「{g1}」寄りの入口として見やすく、まず良作かを判断したい人はここから入ると雰囲気をつかみやすくなります。"
+        return "最初の1本として全体の雰囲気を掴みやすい作品です。まずは、作品相性を判断したい人はここから入ると流れが掴みやすくなります。"
+
     if index == 2:
-        return f"1本目で合いそうだと感じた人が、次に傾向を確かめるのに向いている作品です。特に「{g1}」寄りの見方をしたい人には比較材料になります。"
-    return f"3本目は比較用です。1本目・2本目と見比べることで、{g1}だけで入るべきか、少し違う方向まで含めて追うべきかを判断しやすくなります。"
+        if g1 and maker:
+            return f"1本目で合いそうだと感じた人が、次に作品傾向を確かめるのに向いている作品です。特に「{g1}」とメーカー傾向の両方を確認しやすく、作品比較の材料として使いやすい1本です。"
+        if g1:
+            return f"1本目で合いそうだと感じた人が、次に作品傾向を確かめるのに向いている作品です。特に「{g1}」寄りの見方をしたい人には比較材料になります。"
+        return "1本目で合いそうだと感じた人が、次に作品傾向を確かめるのに向いている作品です。入口としての相性確認から一段進めたい人向けです。"
+
+    if g1 or g2:
+        joined = "」「".join([x for x in [g1, g2] if x])
+        return f"3本目は比較用です。1本目・2本目と見比べることで、「{joined}」だけで入るべきか、少し違う方向まで含めて追うべきかを判断しやすくなります。"
+
+    return "3本目は比較用です。1本目・2本目と見比べることで、どこまで作品軸を広げて追うべきかを判断しやすくなります。"
+
+
+def build_pick_label(index):
+    if index == 1:
+        return "入口向け"
+    if index == 2:
+        return "傾向確認用"
+    return "比較用"
 
 
 def build_picks_html(c):
@@ -274,12 +289,66 @@ def build_picks_html(c):
     for i, p in enumerate(items, start=1):
         title = h(p.get("title", f"おすすめ作品{i}"))
         url = h(p.get("url", "#"))
-        reason = h(build_pick_reason(c, i))
-        parts.append(
-            f"<h3>{i}. <a href=\"{url}\">{title}</a></h3>"
-            f"<p>{reason}</p>"
-        )
+        reason = h(build_pick_reason(c, p, i))
+        thumb_url = h(p.get("thumb_url", ""))
+        date = h(p.get("date", ""))
+        label = h(build_pick_label(i))
+
+        image_html = ""
+        if thumb_url:
+            image_html = f"""
+<div style="flex:0 0 160px;">
+  <a href="{url}">
+    <img src="{thumb_url}" alt="{title}" style="width:160px;height:auto;border-radius:10px;display:block;">
+  </a>
+</div>
+""".strip()
+
+        meta_html = ""
+        if date:
+            meta_html += f'<div style="font-size:13px;color:#6b7280;margin:6px 0 10px;">配信日: {date}</div>'
+
+        parts.append(f"""
+<div style="display:flex;gap:16px;align-items:flex-start;margin:22px 0;padding:16px;border:1px solid #e5e7eb;border-radius:14px;background:#fff;">
+  {image_html}
+  <div style="flex:1 1 auto;min-width:0;">
+    <div style="display:inline-block;font-size:12px;font-weight:700;color:#374151;background:#f3f4f6;padding:4px 8px;border-radius:999px;margin-bottom:10px;">{label}</div>
+    <h3 style="margin:0 0 6px;line-height:1.6;font-size:22px;">
+      {i}. <a href="{url}">{title}</a>
+    </h3>
+    {meta_html}
+    <p style="margin:0;line-height:1.95;">{reason}</p>
+  </div>
+</div>
+""".strip())
+
     return "\n".join(parts)
+
+
+def build_related_line(c, name, index):
+    axis = detect_article_axis(c)
+
+    if axis == "hard":
+        lines = [
+            f"{name}は、条件軸で比較したいときの候補です。好みの近い方向性の中で入口の違いを見たい人向けです。",
+            f"{name}は、同じく条件を先に決めて比較したいときの候補です。どちらが入りやすいかを見比べやすくなります。",
+            f"{name}は、近い傾向の中で別の入り口を探したい人向けの比較先です。"
+        ]
+    elif axis == "bishoujo":
+        lines = [
+            f"{name}は、雰囲気や見た目のまとまりで比較したいときの候補です。",
+            f"{name}は、王道寄りの方向で比べたいときの比較先として使えます。",
+            f"{name}は、近い空気感の中で相性差を見たい人向けです。"
+        ]
+    else:
+        lines = [
+            f"{name}は、近い方向性で比較したいときの候補です。",
+            f"{name}は、入口の違いを見比べたいときの比較先として使えます。",
+            f"{name}は、相性の近い候補を増やしたい人向けです。"
+        ]
+
+    idx = min(index, len(lines) - 1)
+    return lines[idx]
 
 
 def build_related_html(c):
@@ -287,11 +356,18 @@ def build_related_html(c):
     if not items:
         return "<p>比較候補は今後追加予定です。</p>"
 
-    intro = "<p>近い方向性で比較するなら、次の女優も候補に入ります。違いまで含めて見たいときの比較先として使えます。</p>"
-    lis = []
-    for r in items:
-        lis.append(f"<li><a href=\"{h(r['url'])}\">{h(r['name'])}</a></li>")
-    return intro + "<ul>\n" + "\n".join(lis) + "\n</ul>"
+    parts = ['<p>近い方向性で比較するなら、次の女優も候補に入ります。違いまで含めて見たいときの作品の比較先として使えます。</p>']
+    for idx, r in enumerate(items):
+        name = h(r["name"])
+        url = h(r["url"])
+        line = h(build_related_line(c, r["name"], idx))
+        parts.append(f"""
+<div style="margin:14px 0;padding:14px 16px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;">
+  <p style="margin:0 0 6px;font-weight:700;"><a href="{url}">{name}</a></p>
+  <p style="margin:0;line-height:1.9;">{line}</p>
+</div>
+""".strip())
+    return "\n".join(parts)
 
 
 def build_article_html(c):
@@ -299,6 +375,8 @@ def build_article_html(c):
     actress_url = h(c["actress_url"])
 
     return f"""
+{build_summary_box(c)}
+
 <h2>導入</h2>
 <p>{h(build_intro(c))}</p>
 <p>出演作品を一覧で確認したい方は、<a href="{actress_url}">{name}の出演作品一覧ページ</a>もあわせて確認してください。</p>
@@ -319,11 +397,15 @@ def build_article_html(c):
 {build_related_html(c)}
 
 <h2>総評</h2>
-<p>{name}は、最初に代表作で全体の傾向を確認し、その後に出演作品一覧ページで絞り込む見方がもっとも失敗しにくいタイプです。まず1本を決めたい人向けの入口記事として使うのが適しています。</p>
+<p>{name}は、最初に代表作で全体の傾向を確認し、その後に出演作品一覧ページで絞り込む見方がもっとも外しにくいです。まず好みの1本を決めたい人向けの入口記事として使うのがいいです。</p>
 
 <h2>出演作品一覧はこちら</h2>
 <p>作品一覧、上位ジャンル、メーカー傾向までまとめて見たい方は、<a href="{actress_url}">{name}の出演作品一覧ページ</a>を確認してください。</p>
 """.strip()
+
+
+def build_excerpt(c):
+    return build_intro(c)[:120]
 
 
 def create_wp_draft(c, content_html):
@@ -332,13 +414,20 @@ def create_wp_draft(c, content_html):
 
     existing = wp_post_exists(post_slug)
 
+    first_pick = c.get("picks", [{}])[0] if c.get("picks") else {}
+    featured_media = int(first_pick.get("thumb_id", 0) or 0)
+
     payload = {
         "title": f"{c['name']}のおすすめ作品3選｜初めて見る人向けに選び方も解説",
         "slug": post_slug,
         "status": "draft",
         "content": content_html,
+        "excerpt": build_excerpt(c),
         "categories": [WP_CATEGORY_ID],
     }
+
+    if featured_media > 0:
+        payload["featured_media"] = featured_media
 
     if existing:
         post_id = existing["id"]
@@ -358,7 +447,6 @@ def create_wp_draft(c, content_html):
 
 
 def touch_actress(c):
-    # draft は公開前なので、女優ページには public link を出さない
     url = f"{WP_BASE}/wp-json/yoruplus/v1/actress-touch/{c['term_id']}"
     payload = {
         "article_url": "",
