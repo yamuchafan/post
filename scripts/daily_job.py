@@ -340,8 +340,7 @@ def build_picks_html(c):
 </div>
 """.strip())
 
-    return "
-".join(parts)
+    return "\n".join(parts)
 
 
 def build_related_line(c, name, index):
@@ -386,8 +385,7 @@ def build_related_html(c):
   <p class="ypn-related-text">{line}</p>
 </div>
 """.strip())
-    return "
-".join(parts)
+    return "\n".join(parts)
 
 
 def build_article_html(c):
