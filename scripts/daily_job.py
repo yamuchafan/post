@@ -4,6 +4,7 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Dict, List, Optional
 
 import requests
 
@@ -15,6 +16,9 @@ WP_CATEGORY_ID = int(os.environ["WP_CATEGORY_ID"])
 STATE_PATH = Path("state/processed.json")
 DRAFT_DIR = Path("drafts")
 DRAFT_DIR.mkdir(parents=True, exist_ok=True)
+
+_MEDIA_URL_CACHE: Dict[int, str] = {}
+_TAG_ID_CACHE: Dict[str, int] = {}
 
 
 def basic_token():
@@ -297,7 +301,7 @@ def build_pick_label(index):
 def build_picks_html(c):
     items = c.get("picks", [])[:3]
     if not items:
-        return '<p class="ypn-empty">おすすめ候補は準備中です。</p>'
+        return '<p class="ypn-empty">単体作品のおすすめ候補は準備中です。</p>'
 
     parts = []
     for i, p in enumerate(items, start=1):
@@ -336,7 +340,8 @@ def build_picks_html(c):
 </div>
 """.strip())
 
-    return "\n".join(parts)
+    return "
+".join(parts)
 
 
 def build_related_line(c, name, index):
@@ -381,7 +386,8 @@ def build_related_html(c):
   <p class="ypn-related-text">{line}</p>
 </div>
 """.strip())
-    return "\n".join(parts)
+    return "
+".join(parts)
 
 
 def build_article_html(c):
@@ -423,6 +429,242 @@ def build_excerpt(c):
     return build_intro(c)[:120]
 
 
+def normalize_space(text: str) -> str:
+    return " ".join(str(text).replace("　", " ").split())
+
+
+def split_names(value) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        out = []
+        for item in value:
+            out.extend(split_names(item))
+        return out
+    text = normalize_space(str(value))
+    if not text:
+        return []
+    for sep in ["、", "，", ",", "/", "／", "|", "｜"]:
+        text = text.replace(sep, ",")
+    return [normalize_space(x) for x in text.split(",") if normalize_space(x)]
+
+
+def maybe_pick_names_from_object(obj) -> List[str]:
+    if not isinstance(obj, dict):
+        return []
+    candidate_keys = [
+        "actress_names",
+        "performer_names",
+        "出演者",
+        "出演女優",
+        "actresses",
+        "performers",
+        "cast",
+        "stars",
+        "co_stars",
+    ]
+    for key in candidate_keys:
+        if key in obj and obj.get(key):
+            return split_names(obj.get(key))
+    return []
+
+
+def is_pick_solo(pick: dict, actress_name: str) -> Optional[bool]:
+    if not isinstance(pick, dict):
+        return None
+
+    for key in ["is_solo", "solo"]:
+        if key in pick:
+            return bool(pick.get(key))
+
+    for key in ["actress_count", "performer_count", "cast_count"]:
+        if key in pick and str(pick.get(key)).isdigit():
+            return int(pick.get(key)) == 1
+
+    names = maybe_pick_names_from_object(pick)
+    if names:
+        return len(names) == 1 and names[0] == actress_name
+
+    return None
+
+
+def get_media_source_url(media_id: int) -> str:
+    media_id = int(media_id or 0)
+    if media_id <= 0:
+        return ""
+    if media_id in _MEDIA_URL_CACHE:
+        return _MEDIA_URL_CACHE[media_id]
+
+    url = f"{WP_BASE}/wp-json/wp/v2/media/{media_id}"
+    params = {"_fields": "id,source_url"}
+    r = requests.get(url, headers=auth_get_headers(), params=params, timeout=60)
+    if not r.ok:
+        _MEDIA_URL_CACHE[media_id] = ""
+        return ""
+
+    data = r.json()
+    out = data.get("source_url", "") if isinstance(data, dict) else ""
+    _MEDIA_URL_CACHE[media_id] = out or ""
+    return _MEDIA_URL_CACHE[media_id]
+
+
+def fetch_posts_for_actress(term_id: int, per_page: int = 100, max_pages: int = 3) -> List[dict]:
+    posts = []
+    url = f"{WP_BASE}/wp-json/wp/v2/posts"
+
+    for page in range(1, max_pages + 1):
+        params = {
+            "actress": int(term_id),
+            "status": "publish",
+            "orderby": "date",
+            "order": "DESC",
+            "per_page": per_page,
+            "page": page,
+            "context": "view",
+        }
+        r = requests.get(url, headers=auth_get_headers(), params=params, timeout=60)
+        if not r.ok:
+            print("fetch_posts_for_actress failed")
+            print("status:", r.status_code)
+            print("body:", r.text[:500])
+            break
+
+        data = r.json()
+        if not isinstance(data, list) or not data:
+            break
+
+        posts.extend(data)
+
+        total_pages = int(r.headers.get("X-WP-TotalPages", "1") or "1")
+        if page >= total_pages:
+            break
+
+    return posts
+
+
+def normalize_pick_from_post(post: dict) -> dict:
+    title = ""
+    title_obj = post.get("title") or {}
+    if isinstance(title_obj, dict):
+        title = html.unescape(title_obj.get("rendered", "")).strip()
+    elif title_obj:
+        title = html.unescape(str(title_obj)).strip()
+
+    media_id = int(post.get("featured_media") or 0)
+    date_text = str(post.get("date") or "")[:10]
+
+    return {
+        "id": int(post.get("id") or 0),
+        "title": title,
+        "url": post.get("link", ""),
+        "date": date_text,
+        "thumb_url": get_media_source_url(media_id),
+        "thumb_id": media_id,
+        "matched_genres": [],
+        "maker_name": "",
+    }
+
+
+def get_solo_picks(c: dict, limit: int = 3) -> List[dict]:
+    actress_name = str(c.get("name", ""))
+    original_picks = c.get("picks", []) or []
+
+    # 1) 既存候補に solo 判定情報があるなら尊重
+    explicit_solo = []
+    explicit_seen = set()
+    for pick in original_picks:
+        solo_flag = is_pick_solo(pick, actress_name)
+        if solo_flag is True:
+            url = str(pick.get("url", "")).strip()
+            if url and url not in explicit_seen:
+                explicit_solo.append(pick)
+                explicit_seen.add(url)
+            if len(explicit_solo) >= limit:
+                return explicit_solo[:limit]
+
+    # 2) WordPress 側から actress=term_id で取得し、actress ターム数1件だけ残す
+    wp_posts = fetch_posts_for_actress(int(c["term_id"]), per_page=100, max_pages=3)
+    if wp_posts:
+        collected = []
+        seen = set(explicit_seen)
+        for post in wp_posts:
+            actress_terms = post.get("actress")
+            if not isinstance(actress_terms, list):
+                continue
+            if len(actress_terms) != 1:
+                continue
+
+            normalized = normalize_pick_from_post(post)
+            url = normalized.get("url", "")
+            if not url or url in seen:
+                continue
+            collected.append(normalized)
+            seen.add(url)
+            if len(collected) + len(explicit_solo) >= limit:
+                break
+
+        if explicit_solo or collected:
+            return (explicit_solo + collected)[:limit]
+
+    # 3) 最後の保険：元の候補から「solo 否定されていないもの」を使う
+    fallback = []
+    seen = set()
+    for pick in original_picks:
+        solo_flag = is_pick_solo(pick, actress_name)
+        if solo_flag is False:
+            continue
+        url = str(pick.get("url", "")).strip()
+        if not url or url in seen:
+            continue
+        fallback.append(pick)
+        seen.add(url)
+        if len(fallback) >= limit:
+            break
+
+    return fallback[:limit]
+
+
+def ensure_tag_id(tag_name: str) -> Optional[int]:
+    tag_name = normalize_space(tag_name)
+    if not tag_name:
+        return None
+    if tag_name in _TAG_ID_CACHE:
+        return _TAG_ID_CACHE[tag_name]
+
+    url = f"{WP_BASE}/wp-json/wp/v2/tags"
+    params = {"search": tag_name, "per_page": 100, "context": "edit"}
+    r = requests.get(url, headers=auth_get_headers(), params=params, timeout=60)
+    if not r.ok:
+        print("ensure_tag_id search failed")
+        print("status:", r.status_code)
+        print("body:", r.text[:500])
+        return None
+
+    data = r.json()
+    if isinstance(data, list):
+        for item in data:
+            if normalize_space(item.get("name", "")) == tag_name:
+                tag_id = int(item["id"])
+                _TAG_ID_CACHE[tag_name] = tag_id
+                return tag_id
+
+    payload = {"name": tag_name}
+    r2 = requests.post(url, headers=auth_post_headers(), json=payload, timeout=60)
+    if not r2.ok:
+        print("ensure_tag_id create failed")
+        print("status:", r2.status_code)
+        print("body:", r2.text[:500])
+        return None
+
+    created = r2.json()
+    if isinstance(created, dict) and created.get("id"):
+        tag_id = int(created["id"])
+        _TAG_ID_CACHE[tag_name] = tag_id
+        return tag_id
+
+    return None
+
+
 def create_wp_draft(c, content_html):
     term_id = int(c["term_id"])
     post_slug = f"seo-actress-{term_id}"
@@ -440,6 +682,10 @@ def create_wp_draft(c, content_html):
         "excerpt": build_excerpt(c),
         "categories": [WP_CATEGORY_ID],
     }
+
+    tag_id = ensure_tag_id(c["name"])
+    if tag_id:
+        payload["tags"] = [tag_id]
 
     if featured_media > 0:
         payload["featured_media"] = featured_media
@@ -510,6 +756,7 @@ def main():
             done_term_ids.add(term_id)
             continue
 
+        c["picks"] = get_solo_picks(c, limit=3)
         chosen = c
         break
 
